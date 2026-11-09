@@ -1,0 +1,21 @@
+# Generated build files
+build/*
+!build/CreatureTerrainTiltFix.dll
+
+# Visual Studio and CMake
+.vs/
+.vscode/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.obj
+*.ilk
+*.pdb
+*.lib
+*.exp
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,13 @@
+Creature Terrain Tilt Fix
+Copyright (C) 2026 Creature Terrain Tilt Fix contributors
+
+This project is free software licensed under the GNU General Public License,
+version 3 (GPL-3.0).
+
+You may redistribute and/or modify it under the terms of that license.
+The complete license text is provided in LICENSE. This software is provided
+WITHOUT ANY WARRANTY, including the implied warranties of MERCHANTABILITY
+and FITNESS FOR A PARTICULAR PURPOSE. See the license for details.
+
+This project includes SafeWrite code from WallSoGB's Fallout-Real-Time-Menus,
+also licensed under GPL-3.0. See shared/SafeWrite/ and CREDITS.md.

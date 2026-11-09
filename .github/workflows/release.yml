@@ -1,0 +1,103 @@
+name: release
+
+on:
+  # Bump VERSION on main to release. Other pushes do not run this workflow.
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release for the current VERSION (off = dry run)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      NEXUS_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Publishes only when VERSION is untagged and the run is a push or a manual
+      # run with "publish" ticked. Any other manual run is a dry run: it builds and
+      # previews the changelog, and publishes nothing.
+      - name: Read version
+        id: ver
+        run: |
+          v=$(tr -d '[:space:]' < VERSION)
+          [[ $v =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo "Invalid VERSION: '$v'"; exit 1; }
+          release=false
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "v$v already exists; not releasing"
+          elif [ "$GITHUB_EVENT_NAME" = push ] || [ "${{ inputs.publish }}" = true ]; then
+            release=true
+          fi
+          { echo "release=$release"; echo "version=$v"; echo "tag=v$v"; } >> "$GITHUB_OUTPUT"
+
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang lld g++-mingw-w64-i686 p7zip-full
+
+      - name: Build and package
+        run: |
+          ./build.sh
+          rm -rf build/pkg build/CreatureTerrainTiltFix.7z
+          mkdir -p build/pkg/nvse/plugins
+          cp build/CreatureTerrainTiltFix.dll build/pkg/nvse/plugins/
+          (cd build/pkg && 7z a -bso0 ../CreatureTerrainTiltFix.7z nvse)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CreatureTerrainTiltFix
+          path: build/CreatureTerrainTiltFix.7z
+
+      # Changelog = the matching "## <version>" section of CHANGELOG.md.
+      - name: Write changelog
+        id: notes
+        run: |
+          awk -v v="${{ steps.ver.outputs.version }}" '
+            /^## / { on = ($2 == v); next }
+            on' CHANGELOG.md | sed -e '/./,$!d' > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no '## ${{ steps.ver.outputs.version }}' section"
+            [ "${{ steps.ver.outputs.release }}" = true ] && exit 1
+            echo "- (no changelog section yet)" > notes.md
+          fi
+          {
+            echo "changelog<<EOF_NOTES"
+            sed 's/^- //' notes.md   # Nexus shows its own bullets: no "- " at the start of a line
+            echo "EOF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Changelog for ${{ steps.ver.outputs.tag }} (publish: ${{ steps.ver.outputs.release }})"
+            cat notes.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub release
+        if: steps.ver.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: gh release create "$TAG" build/CreatureTerrainTiltFix.7z --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
+
+      # Skipped until the NEXUSMODS_API_KEY secret exists.
+      - name: Upload to Nexus Mods
+        if: steps.ver.outputs.release == 'true' && env.NEXUS_KEY != ''
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.11
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          mod_id: ${{ vars.NEXUSMODS_MOD_ID }}
+          file_id: ${{ vars.NEXUSMODS_FILE_ID }}
+          filename: build/CreatureTerrainTiltFix.7z
+          display_name: Creature Terrain Tilt Fix
+          version: ${{ steps.ver.outputs.version }}
+          changelog: ${{ steps.notes.outputs.changelog }}
+          category: main
+          archive_existing_version: true
+          update_mod_version: true
