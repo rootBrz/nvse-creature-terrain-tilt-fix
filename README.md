@@ -16,8 +16,9 @@ It also corrects the tilt angle itself. `CalculatePitchAndRoll` (`0x00C70060`) c
 
 A creature that dies with part of its body in the ground used to fall through the terrain, get dragged back stretched, or lie half buried and twitching. The tilt changes above remove the usual reason for dying in that pose. The changes below handle a corpse that is in the ground anyway, for example on rough terrain or when loaded from a save.
 
-**Ragdoll penetration recovery is repaired.** `bhkRagdollPenetrationUtil::Update` (`0x00CA1410`) disables collision on a bone that crosses a surface, and on every bone below it in the skeleton, but pushes only the crossing bone. The rest has nothing holding it, so when the crossing bone is the root the whole corpse falls through the terrain. Two changes:
+**Ragdoll penetration recovery is repaired.** `bhkRagdollPenetrationUtil::Update` (`0x00CA1410`) disables collision on a bone that crosses a surface, and on every bone below it in the skeleton, but pushes only the crossing bone. The rest has nothing holding it, so when the crossing bone is the root the whole corpse falls through the terrain. Three changes:
 
+- When a penetration is detected, every bone of that ragdoll is marked, not only the crossing bone and the bones attached below it. Otherwise buried bones nearer the root keep their collision and stay trapped.
 - After the stock update, every bone that has collision disabled is given the same velocity: `fDesiredVel` along the average contact normal. The ragdoll leaves the surface as one piece. This runs for other actors only, from the detour at `0x009782DA`; the player's own ragdoll keeps the stock push.
 - A detour on the detection call at `0x00CA175E` reports "clear" once `fDetectionUpdateTimeSec` (default 5 s) has passed, so the stock code restores collision. Stock keeps going for as long as anything is crossing.
 

@@ -498,6 +498,14 @@ The recovery's design is sound in outline: find bones on the wrong side of a sur
 - **End it after the detection window.** A detour on the detection call (`0x00CA175E`; `EBX` is the util, `+0x20` window start, `+0x28` window length) reports "clear" once the window has passed. The stock code then clears bit `0x4000` on every bone. At 1.5 m/s for 5 s a ragdoll can travel 7.5 m at most.
 - **The lift is removed (version 112).** Section 13's lift existed because, with the recovery switched off, nothing got a buried bone out. With the recovery repaired that is its job: a ragdoll with bones on both sides of the terrain has a bone line crossing it, the detection flags those bones, and they are carried up until nothing crosses. Keeping the lift as well would hide whether the recovery works, since the lift acts first. If a corpse is still buried when the window ends, nothing moves it any more.
 
+### Version 113: the whole ragdoll, not a subtree
+
+Version 112 carried the bones the detection had marked: the crossing bone and the bones attached below it in the skeleton. A corpse that was mostly under the terrain, with only a limb above it, was reported still twitching in the ground.
+
+That is the case where the buried part is the root side. The crossing is between a buried parent and a child above the surface; the detection marks that parent and everything below it, but not the parent's own ancestors. Those keep their collision, stay trapped under the terrain, and hold the carried bones back.
+
+Now, when the detection reports a penetration, every bone that it left unmarked is marked as "attached" (state 2, at `controller +0x18`, count at `+0x1C`). The stock code then disables collision on the whole ragdoll and the carry step moves all of it as one rigid body until no bone line crosses anything. This was not confirmed in game at the time of writing.
+
 ### Risks
 
 - The carried bones pass through everything along the chosen direction. The direction comes from the ray cast in `0x00CA1C50`, which takes the first hit in collector order, not the nearest. A wrong normal sends the ragdoll the wrong way for up to 5 s.

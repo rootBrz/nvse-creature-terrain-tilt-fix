@@ -11,7 +11,7 @@
 namespace {
 
 constexpr char kPluginName[] = "Creature Terrain Tilt Fix";
-constexpr uint32_t kPluginVersion = 112;
+constexpr uint32_t kPluginVersion = 113;
 
 // MobileObject::Move, distant controller update (Fallout NV 1.4.0.525).
 constexpr uintptr_t kInitFrontBackCall = 0x0092FBCD; // call 0x00C6E820
@@ -105,6 +105,20 @@ bool __cdecl RecoveryWindowExpired(const uint8_t* util) {
     return reinterpret_cast<int64_t(__cdecl*)()>(kPrecisionTimer)() - start > length;
 }
 
+// The detection marks a crossing bone and the bones attached below it. Bones above
+// it in the skeleton keep their collision, so when those are the buried ones they
+// stay trapped under the terrain and the ragdoll is pulled apart. Mark every bone:
+// the stock code then disables collision on the whole ragdoll, and all of it is
+// carried out together. controller +0x18: per-bone states, +0x1C: bone count;
+// 0 = clear, 1 = crossing, 2 = attached below a crossing bone.
+void __cdecl MarkWholeRagdoll(const uint8_t* controller) {
+    int* states = *reinterpret_cast<int* const*>(controller + 0x18);
+    const int count = *reinterpret_cast<const int*>(controller + 0x1C);
+    for (int i = 0; states && i < count; ++i)
+        if (!states[i])
+            states[i] = 2;
+}
+
 // thiscall detectPenetration(hkBool* result, pose, contacts). EBX is the util.
 // After the window it reports "clear"; the stock code then restores collision.
 __declspec(naked) void DetectWithinWindow() {
@@ -116,7 +130,22 @@ __declspec(naked) void DetectWithinWindow() {
         pop ecx
         test al, al
         jnz expired
-        jmp dword ptr [gDetectDetour]
+
+        push ecx // controller, for MarkWholeRagdoll
+        push dword ptr [esp+0x10] // contacts
+        push dword ptr [esp+0x10] // pose
+        push dword ptr [esp+0x10] // result
+        call dword ptr [gDetectDetour] // returns the result pointer in EAX
+        pop ecx
+        cmp byte ptr [eax], 0
+        je done
+        push eax
+        push ecx
+        call MarkWholeRagdoll
+        add esp, 4
+        pop eax
+    done:
+        ret 0xC
 
     expired:
         mov eax, dword ptr [esp+0xC]
