@@ -11,7 +11,7 @@
 namespace {
 
 constexpr char kPluginName[] = "Creature Terrain Tilt Fix";
-constexpr uint32_t kPluginVersion = 113;
+constexpr uint32_t kPluginVersion = 200;
 
 // MobileObject::Move, distant controller update (Fallout NV 1.4.0.525).
 constexpr uintptr_t kInitFrontBackCall = 0x0092FBCD; // call 0x00C6E820

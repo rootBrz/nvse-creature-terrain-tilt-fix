@@ -1,6 +1,5 @@
 # Generated build files
-build/*
-!build/CreatureTerrainTiltFix.dll
+build/
 
 # Visual Studio and CMake
 .vs/

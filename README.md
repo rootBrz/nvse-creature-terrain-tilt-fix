@@ -1,6 +1,6 @@
 # Creature Terrain Tilt Fix
 
-NVSE plugin for Fallout: New Vegas 1.4.0.525. It makes creatures tilt correctly on slopes and keeps corpses from sinking into the terrain. The name is historical; the corpse changes were added in 1.1.
+NVSE plugin for Fallout: New Vegas 1.4.0.525. It makes creatures tilt correctly on slopes and keeps corpses from sinking into the terrain. The name is historical; the corpse changes were added in 2.0.
 
 It fixes stale support-height data in the distant `MobileObject::Move` path used by horizontal/probe character controllers. The fix is not specific to ants or any other creature type.
 
@@ -36,8 +36,8 @@ The plugin validates all five sites before patching any of them and has no C++ r
 - `shared/SafeWrite/`: RTM’s `CallDetour` and memory-patching support, vendored under GPL-3.0.
 - `nvse/PluginAPI.h`: NVSE ABI declarations used by the plugin.
 - `build.sh`: standalone Clang/MinGW build.
+- `.github/workflows/release.yml`: builds and publishes a release when `VERSION` changes on `main`. No binary is kept in the repository.
 - `CMakeLists.txt`: standalone MSVC-compatible build.
-- `build/CreatureTerrainTiltFix.dll`: prebuilt Win32 plugin.
 - `LICENSE`: GNU General Public License 3.0.
 - `NOTICE` and `CREDITS.md`: ownership and attribution.
 

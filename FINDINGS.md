@@ -10,7 +10,7 @@ The current plugin, **Creature Terrain Tilt Fix v106**, addresses that specific 
 
 The fix is limited to horizontal/probe controllers (`controller +0x414 & 1`). Other controller types and several related defects remain outside its scope.
 
-Version 112 adds two further changes found later with runtime logs: the tilt-angle divisor (section 11) and the repaired ragdoll penetration recovery (section 14, with the investigation behind it in sections 12 and 13). Sections 1 to 10 describe version 106 and are unchanged.
+Version 2.0 adds two further changes found later with runtime logs: the tilt-angle divisor (section 11) and the repaired ragdoll penetration recovery (section 14, with the investigation behind it in sections 12 and 13). Sections 1 to 10 describe version 106 and are unchanged.
 
 ## 1. Rejected hypothesis: `0x008CD780`
 
@@ -325,13 +325,7 @@ Instrument one affected actor while it crosses a slope at different distances.
 
 ## 10. Current packaging and verification
 
-Current binary:
-
-```text
-build/CreatureTerrainTiltFix.dll
-```
-
-The repository contains the NVSE entry points, local hook logic, RTM SafeWrite sources, standalone build files, prebuilt binary, GPL-3.0 license, notice, and credits.
+The repository contains the NVSE entry points, local hook logic, RTM SafeWrite sources, standalone build files, GPL-3.0 license, notice, and credits. No binary is kept in the repository; the release workflow builds `CreatureTerrainTiltFix.dll` from source.
 
 Verified during development:
 
@@ -342,7 +336,7 @@ Verified during development:
 
 Full behavior across all controller types, mods, near/far transitions, and fade configurations has not been validated.
 
-## 11. Under-tilt from the wrong divisor (version 110)
+## 11. Under-tilt from the wrong divisor (version 2.0)
 
 Found later with a runtime log, while investigating corpses that sank into the ground and twitched.
 
@@ -474,9 +468,9 @@ The user reported the sinking and twitching fixed with this change.
 
 Far from the player, `MobileObject::Move` sets an actor's height to the navmesh height (`0x0092F9B7`) without comparing it with the land, unlike the near path. A clamp to the land height was added on that theory. It was active in every logged run, so no log shows it doing anything, and its first version crashed (it called `TES::GetLandHeightAtPosition` without the `TES` object). It was removed. If distant living creatures are seen standing below the surface on flat ground, this is the place to look.
 
-## 14. Repairing the recovery instead of switching it off (version 112)
+## 14. Repairing the recovery instead of switching it off (version 2.0)
 
-Sections 12 and 13 work, but they are workarounds: one disables an engine feature, the other corrects a bad state after it appears. This section records what static analysis found about the two open questions and the repair that follows from it. The static findings below were not checked at runtime. The repair itself (version 112) was confirmed in game by the user with the `killall` test on slopes: corpses no longer sink, stretch or twitch. A corpse against a rock was also checked and looked correct. Walls and other objects were not tried.
+Sections 12 and 13 work, but they are workarounds: one disables an engine feature, the other corrects a bad state after it appears. This section records what static analysis found about the two open questions and the repair that follows from it. The static findings below were not checked at runtime. The repair itself was confirmed in game by the user over three test builds (numbered 112 and 113 below; released as 2.0): the `killall` test on slopes, a corpse against a rock, and a corpse that was mostly under the terrain. Walls and other objects were not tried.
 
 ### Why terrain does not push out a bone that starts below it
 
@@ -496,15 +490,15 @@ The recovery's design is sound in outline: find bones on the wrong side of a sur
 
 - **Carry the whole subtree.** After the stock update, for each ragdoll with a penetration detected this frame (`entry +0x20`), take the average of the contact normals (`entry +0x14` records of 48 bytes, normal at `+0x20`; count at `entry +0x18`) and set the linear velocity (`hkpRigidBody +0x1B0`) of every bone that has filter bit `0x4000` to `fDesiredVel` along it. If the normals cancel out, the direction is straight up. Setting the velocity outright, not adding to it, also removes gravity for these bones, which have no floor under them while their collision is off. The stock impulse on the crossing bone is left in place and simply overwritten.
 - **End it after the detection window.** A detour on the detection call (`0x00CA175E`; `EBX` is the util, `+0x20` window start, `+0x28` window length) reports "clear" once the window has passed. The stock code then clears bit `0x4000` on every bone. At 1.5 m/s for 5 s a ragdoll can travel 7.5 m at most.
-- **The lift is removed (version 112).** Section 13's lift existed because, with the recovery switched off, nothing got a buried bone out. With the recovery repaired that is its job: a ragdoll with bones on both sides of the terrain has a bone line crossing it, the detection flags those bones, and they are carried up until nothing crosses. Keeping the lift as well would hide whether the recovery works, since the lift acts first. If a corpse is still buried when the window ends, nothing moves it any more.
+- **The lift is removed (test build 112).** Section 13's lift existed because, with the recovery switched off, nothing got a buried bone out. With the recovery repaired that is its job: a ragdoll with bones on both sides of the terrain has a bone line crossing it, the detection flags those bones, and they are carried up until nothing crosses. Keeping the lift as well would hide whether the recovery works, since the lift acts first. If a corpse is still buried when the window ends, nothing moves it any more.
 
-### Version 113: the whole ragdoll, not a subtree
+### Test build 113: the whole ragdoll, not a subtree
 
-Version 112 carried the bones the detection had marked: the crossing bone and the bones attached below it in the skeleton. A corpse that was mostly under the terrain, with only a limb above it, was reported still twitching in the ground.
+Test build 112 carried the bones the detection had marked: the crossing bone and the bones attached below it in the skeleton. A corpse that was mostly under the terrain, with only a limb above it, was reported still twitching in the ground.
 
 That is the case where the buried part is the root side. The crossing is between a buried parent and a child above the surface; the detection marks that parent and everything below it, but not the parent's own ancestors. Those keep their collision, stay trapped under the terrain, and hold the carried bones back.
 
-Now, when the detection reports a penetration, every bone that it left unmarked is marked as "attached" (state 2, at `controller +0x18`, count at `+0x1C`). The stock code then disables collision on the whole ragdoll and the carry step moves all of it as one rigid body until no bone line crosses anything. This was not confirmed in game at the time of writing.
+Now, when the detection reports a penetration, every bone that it left unmarked is marked as "attached" (state 2, at `controller +0x18`, count at `+0x1C`). The stock code then disables collision on the whole ragdoll and the carry step moves all of it as one rigid body until no bone line crosses anything. The user confirmed that the corpse which stayed buried with build 112 was recovered with this change.
 
 ### Risks
 
@@ -514,4 +508,4 @@ Now, when the detection reports a penetration, every bone that it left unmarked 
 
 ### How to check it
 
-First repeat the `killall` test on slopes: corpses must not sink, stretch or twitch. Then kill something so that it falls against or into a rock, wall or large object, and watch for 5 s. Expected: the part that is inside slides out and the corpse settles. Wrong: the corpse slides away through geometry, hovers, or ends up inside the object. If it is wrong, go back to version 110 (branch `tilt-sample-span`), where the recovery is switched off.
+First repeat the `killall` test on slopes: corpses must not sink, stretch or twitch. Then kill something so that it falls against or into a rock, wall or large object, and watch for 5 s. Expected: the part that is inside slides out and the corpse settles. Wrong: the corpse slides away through geometry, hovers, or ends up inside the object. If it is wrong, the remedies in sections 12 and 13 are the fallback.
