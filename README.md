@@ -1,18 +1,33 @@
 # Creature Terrain Tilt Fix
 
-NVSE plugin for Fallout: New Vegas 1.4.0.525. It fixes stale support-height data in the distant `MobileObject::Move` path used by horizontal/probe character controllers. The fix is not specific to ants or any other creature type.
+NVSE plugin for Fallout: New Vegas 1.4.0.525. It makes creatures tilt correctly on slopes and keeps corpses from sinking into the terrain. The name is historical; the corpse changes were added in 1.1.
+
+It fixes stale support-height data in the distant `MobileObject::Move` path used by horizontal/probe character controllers. The fix is not specific to ants or any other creature type.
 
 ## What it changes
+
+### Tilt
 
 At `0x0092FBCD`, the plugin wraps the existing `bhkCharacterController_InitFrontBack` call. For probe controllers it resets the four cached support heights to `FLT_MIN`, forcing `CalculatePitchAndRoll` to sample the current terrain, then calls the preserved target.
 
 It also corrects the tilt angle itself. `CalculatePitchAndRoll` (`0x00C70060`) computes `atan(height difference / length)`, but `InitFrontBack` places the ground samples only `length - 2 * radius` apart. The two divisions at `0x00C70159` (pitch) and `0x00C702CB` (roll) are replaced with a call that divides by the real distance between the samples. This applies at every distance, not only far from the player.
 
+### Corpses
+
+A creature that dies with part of its body in the ground used to fall through the terrain, get dragged back stretched, or lie half buried and twitching. The tilt changes above remove the usual reason for dying in that pose. The changes below handle a corpse that is in the ground anyway, for example on rough terrain or when loaded from a save.
+
+**Ragdoll penetration recovery is repaired.** `bhkRagdollPenetrationUtil::Update` (`0x00CA1410`) disables collision on a bone that crosses a surface, and on every bone below it in the skeleton, but pushes only the crossing bone. The rest has nothing holding it, so when the crossing bone is the root the whole corpse falls through the terrain. Two changes:
+
+- After the stock update, every bone that has collision disabled is given the same velocity: `fDesiredVel` along the average contact normal. The ragdoll leaves the surface as one piece. This runs for other actors only, from the detour at `0x009782DA`; the player's own ragdoll keeps the stock push.
+- A detour on the detection call at `0x00CA175E` reports "clear" once `fDetectionUpdateTimeSec` (default 5 s) has passed, so the stock code restores collision. Stock keeps going for as long as anything is crossing.
+
+A ragdoll that starts with bones under the terrain is handled by the same recovery: a bone line crosses the surface, those bones lose collision, and all of them are carried up and out. This was confirmed in game on slopes and against a rock. Walls and other objects were not tried.
+
 RTM’s `HookUtils::CallDetour` preserves the existing target so another detour installed earlier can run afterward. A plugin installed later must likewise preserve the current target; compatibility cannot be guaranteed with a later plugin that blindly overwrites the call.
 
 The plugin does not change actor-fade behavior or character-proxy positioning. Those extra operations were removed after a crash report. Non-probe controllers retain the stock update.
 
-The plugin validates all three sites before patching any of them and has no C++ runtime dependency. It imports `KERNEL32`, `USER32` (an error message box if the hook site does not match) and the C runtime: `msvcrt.dll` in the CI-built release, `api-ms-win-crt-*` (UCRT) in a build with a UCRT MinGW toolchain.
+The plugin validates all five sites before patching any of them and has no C++ runtime dependency. It imports `KERNEL32`, `USER32` (an error message box if the hook site does not match) and the C runtime: `msvcrt.dll` in the CI-built release, `api-ms-win-crt-*` (UCRT) in a build with a UCRT MinGW toolchain.
 
 ## Repository contents
 
@@ -48,13 +63,18 @@ The output is `build/CreatureTerrainTiltFix.dll`. Install it as `Data/NVSE/Plugi
 
 ## Scope and cost
 
-The fix refreshes four terrain support samples whenever the stock distant probe update runs. Other movement and fade behavior is unchanged.
+While a ragdoll is in recovery, the bones being carried have no collision and move in a straight line at `fDesiredVel` (about 1.5 m/s) for at most `fDetectionUpdateTimeSec`. They can pass through anything in that direction. The direction comes from the first surface each detection ray reports, which is not always the nearest one.
 
 Runtime behavior should be validated with ants moving across slopes at varying distances and with any other plugins that hook the same call site. The supplied executable was used to verify the hook address and calling convention; the emitted hook assembly was also checked.
 
 ## Investigation
 
-See [FINDINGS.md](FINDINGS.md) for the complete source-level investigation, rejected arrow hypothesis, crash history, remaining limitations, and runtime validation plan.
+See [FINDINGS.md](FINDINGS.md):
+
+- Sections 1 to 10: the stale support heights in the distant movement path, the rejected arrow hypothesis, crash history and remaining limitations.
+- Section 11: the tilt-angle divisor, with measurements before and after.
+- Sections 12 and 13: the corpse problems, the runtime logs that identified them, and two remedies that were tried and replaced.
+- Section 14: why terrain does not push a buried body out, the repaired recovery, and its risks.
 
 ## License
 

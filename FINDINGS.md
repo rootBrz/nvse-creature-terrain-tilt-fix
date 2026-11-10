@@ -10,6 +10,8 @@ The current plugin, **Creature Terrain Tilt Fix v106**, addresses that specific 
 
 The fix is limited to horizontal/probe controllers (`controller +0x414 & 1`). Other controller types and several related defects remain outside its scope.
 
+Version 112 adds two further changes found later with runtime logs: the tilt-angle divisor (section 11) and the repaired ragdoll penetration recovery (section 14, with the investigation behind it in sections 12 and 13). Sections 1 to 10 describe version 106 and are unchanged.
+
 ## 1. Rejected hypothesis: `0x008CD780`
 
 The original suspicious function was presented as `MovementController::UpdateAnimation`. Its local staging names are misleading.
@@ -361,3 +363,147 @@ Fix: the two `fdiv dword ptr [esi+0x5F4]` instructions at `0x00C70159` and `0x00
 Measured after the fix, same save and actors, on slopes steeper than 0.08 rad: tilt divided by slope averaged 1.00 over 750 samples for the small radscorpion controller (individuals 0.9 to 1.35). The user confirmed in game that scorpions sit flush on slopes.
 
 Not checked: the larger controllers (lengths 21.43 and 35.72) were almost always on near-flat ground in that run, so their result is not established.
+
+## 12. Corpses that sink, stretch and twitch: the penetration recovery
+
+This section records the investigation and a first remedy, switching the recovery off, which was used during testing. The shipped change is the repair in section 14.
+
+### Report
+
+> I killed one stuck in the ground like that near the Dunwich building and it started twitching out like crazy. [...] when I came out I saw the rad scorpion's body go by randomly flying through the sky off in the distance.
+
+Later reports: limbs stretched, the corpse half buried and twitching, most often for radscorpions killed far away.
+
+### The system
+
+Every actor owns a `bhkRagdollPenetrationUtil` at `Actor +0xB0`, meant to pull a ragdoll out of terrain and objects.
+
+| Address | Role |
+|---|---|
+| `0x00CA2AD0` | `Initialize`: builds the ragdoll entries and starts a detection timer |
+| `0x00CA0CD0` | Marks all entries active and restarts the timer when a saved actor is loaded |
+| `0x00CA1410` | `Update`: once per frame, called from the player update (`0x0093F8C2`) and the per-actor loop (`0x009782DA`) |
+| `0x00D1FB00` | `hkaDetectRagdollPenetration::detectPenetration` |
+| `0x00CA1C50` | Ray cast used by the detection |
+
+Detection: for each bone and its parent, a ray is cast between their positions. A hit on anything that is not a ragdoll body (layers 8 and 29) marks the parent "penetrating" and every bone below it "descendant". The ray cast takes the first hit in collector order, not the closest.
+
+Response, each frame while anything is penetrating:
+
+1. Every marked bone gets collision-filter bit `0x4000`. `bhkCollisionFilter::IsCollisionEnabled` (`0x00C84740`) returns false for it, so the bone collides with nothing.
+2. Each "penetrating" bone gets an impulse along the hit normal: `mass * (fDesiredVel - velocity . normal)`, clamped to `fImpulseLimit`. Defaults in `[RagdollAnim]`: `fDesiredVel` 15 (about 1.5 m/s; one Havok unit is 6.9991 game units), `fImpulseLimit` 1500, `fDetectionUpdateTimeSec` 5.
+
+There is no time limit while a penetration is still detected.
+
+### What a runtime log showed
+
+A logger recorded, per ragdoll, how many bones were under the land surface and how many had collision disabled. One radscorpion corpse (`00164A53`, 37 bones) after a load, heights in game units relative to the land:
+
+| Time | Bones below land | Bone height | Collision disabled | Recovery |
+|---|---|---|---|---|
+| 0.0 s | 10 of 37 | -16 to +47 | 0 | active |
+| 0.6 s | 11 | -16 to +48 | **37 of 37** | active |
+| 1.1 s | 37 | -67 to -9 | 6 | active |
+| 3.2 s | 37 | -1506 to -1422 | 0 | inactive |
+| 3.7 s | 37 | **-1217 to -239** | 0 | inactive |
+| 5.3 s | 36 | **-1698 to +31** | 0 | inactive |
+| 5.8 s onward | 30 | -37 to +29 | 0 | inactive |
+
+1. The recovery found a crossing at the root bone and disabled collision on all 37 bones.
+2. The corpse fell through the terrain within half a second. The impulse acts on one bone and cannot carry the ragdoll.
+3. Once every bone was below the surface, no bone line crossed it, so detection reported "clear" and collision was restored. Terrain does not stop a body from below; it kept falling.
+4. Twice, part of the corpse was moved back up while the rest was 950 to 1730 units lower. That is the stretching. The code that does this was not identified.
+5. It ended with 30 of 37 bones under the surface, moving at about 2000 units per second without end.
+
+### Fix
+
+The call to `detectPenetration` at `0x00CA175E` is replaced with a stub that empties the contact list and returns false. The stock code then takes its normal "not penetrating" path, which clears filter bit `0x4000` and applies nothing. In the next log no ragdoll had collision disabled and none fell through the terrain.
+
+### Hypotheses that were tried and dropped
+
+- **The impulse over-corrects because it is applied off-centre.** True as arithmetic: for a thin bone hit at distance `a` from its centre the error is multiplied by `-(12 a^2 / L^2)` each frame, which grows once `a > 0.29 L`. Applying the impulse at the centre of mass (`0x00CA1A76`) did not change what players saw.
+- **The pull never stops.** Limiting it to `fDetectionUpdateTimeSec` did not help either. The damage is done in the first half second, by the loss of collision.
+
+### Drawbacks
+
+- A limb that ends up through a wall or an object is no longer pulled out.
+- The stub replaces the call; it does not chain to a detour installed there earlier by another plugin.
+- Step 4 above is unexplained. Nothing was seen to trigger it once corpses stopped falling through.
+
+## 13. Corpses that stay half buried: trapped bones
+
+This section records the investigation and a second remedy used during testing, lifting a buried ragdoll by land height. It is not in the shipped plugin; the repair in section 14 replaced it.
+
+With the penetration recovery off (section 12), corpses no longer fell through the terrain, but radscorpions killed far away with `killall` still sank and twitched.
+
+### What a runtime log showed
+
+Three that sank, two that came to rest normally. Heights are bone centres relative to the land surface, in game units:
+
+| Actor | Before ragdoll: lowest bone | Bones below land | At rest: lowest bone | Bone speed at rest |
+|---|---|---|---|---|
+| `00164A53` (sunk) | -16 | 10 of 37 | -22 to -34 | 240 to 960 units/s, never settles |
+| `0016174B` (sunk) | -10 | 5 | -22 | 60 to 490 units/s |
+| `00161749` (sunk) | -17 | 8 | -18 to -20 | 280 to 470 units/s |
+| `00161755` (normal) | +8 | 0 | +7 | 0 |
+| `00164BDC` (normal) | +2 | 0 | +8 | 0 |
+
+- The sunk scorpions already had 5 to 10 bones under the land when they died, although the actor's own position was on the surface. Section 11 explains that pose: the body was tilted less than the slope.
+- The number of bones below the land never changes afterwards. Terrain collision does not push them out. They stay on the lower side, the other bones on the upper side, and the joints pull between them. That is the twitching.
+- A corpse that starts with every bone above the land settles with its lowest bone centre about 7 units above it and stops.
+
+### Fix
+
+A detour on the per-actor ragdoll update call (`0x009782DA`; `EDX` is the actor, `ECX` its `bhkRagdollPenetrationUtil`) runs before the stock call. For an actor whose life state (`Actor +0x108`) is dying or dead, in an exterior (`TES +0x34`, the interior cell, is null), it walks the ragdoll bones (`util +0x08` entries, `entry +0x04` rig, `rig +0x08` bodies, `rig +0x0C` count):
+
+- A bone's height above the land is its centre of mass (`hkpRigidBody +0x140`, times 6.9991255) minus `TES::GetLandHeightAtPosition` (`0x004572E0`).
+- If the lowest is more than 4 units under the land, every body is moved up by `8 - lowest` with `hkpRigidBody::setPosition` (`0x00CA8800`), starting from the body origin at `+0x120`.
+- All bodies move by the same distance, so no joint is strained.
+- It is skipped unless every bone is a dynamic body in the world (motion type at `+0xE8` not 4 or 5), and when the lowest bone is more than 150 units down.
+
+The user reported the sinking and twitching fixed with this change.
+
+### Drawbacks
+
+- **Landscape only.** "Buried" means below the landscape height. Statics are not considered, so a corpse inside a rock is not helped, and a corpse in a place built below the landscape surface would be raised onto it.
+- **Cost.** One land-height lookup per ragdoll bone per frame for each dying or dead actor being updated.
+- **A safety net, not the cause.** The cause of the buried pose is the under-tilt in section 11. This catches what that does not: rough ground, and corpses already buried in a save.
+- **Thresholds are measured, not derived.** 8 units of clearance comes from the two normal corpses above. A much larger creature might need more and would then be lifted repeatedly; this was not seen.
+
+### A change that was tried and removed
+
+Far from the player, `MobileObject::Move` sets an actor's height to the navmesh height (`0x0092F9B7`) without comparing it with the land, unlike the near path. A clamp to the land height was added on that theory. It was active in every logged run, so no log shows it doing anything, and its first version crashed (it called `TES::GetLandHeightAtPosition` without the `TES` object). It was removed. If distant living creatures are seen standing below the surface on flat ground, this is the place to look.
+
+## 14. Repairing the recovery instead of switching it off (version 112)
+
+Sections 12 and 13 work, but they are workarounds: one disables an engine feature, the other corrects a bad state after it appears. This section records what static analysis found about the two open questions and the repair that follows from it. The static findings below were not checked at runtime. The repair itself (version 112) was confirmed in game by the user with the `killall` test on slopes: corpses no longer sink, stretch or twitch. A corpse against a rock was also checked and looked correct. Walls and other objects were not tried.
+
+### Why terrain does not push out a bone that starts below it
+
+- Terrain collision is built in `bhkTriSampledHeightFieldBvTreeShape_Init` (`0x00CB0820`) as a `hkpTriSampledHeightFieldCollection` with a sphere radius and nothing else.
+- The collection constructor (`0x00D26700`) sets its triangle extrusion (`+0x30`) to zero. Each triangle it hands out (`0x00D26510`) is therefore a flat sheet with no thickness.
+- The triangle query (`0x00D26E50`, extents from `0x00D26940`) clips the body's box to the height range of the whole height field and, when bounds checking is on, returns no triangles if every sampled height is above the box. A body wholly below the surface gets no triangles at all.
+
+So a bone below the surface is either ignored or, where it touches the sheet, pushed to the side it is already on. Havok's remedy is the extrusion, which makes each triangle a prism reaching down. Using it here would need three changes in code that every physics object runs through: set the extrusion, widen the query box by it, and lower the terrain's bounding box. That affects all terrain collision for everything in the game and cannot be checked without a running game, so it was not attempted.
+
+### What moved the fallen corpse back up
+
+Not found. It was only seen after a corpse had fallen through the terrain, which no longer happens.
+
+### The repair
+
+The recovery's design is sound in outline: find bones on the wrong side of a surface, let them pass through it, move them out. Its defect is that it removes collision from a whole subtree and then pushes one bone of it. The subtree's other bones are in free fall with no collision.
+
+- **Carry the whole subtree.** After the stock update, for each ragdoll with a penetration detected this frame (`entry +0x20`), take the average of the contact normals (`entry +0x14` records of 48 bytes, normal at `+0x20`; count at `entry +0x18`) and set the linear velocity (`hkpRigidBody +0x1B0`) of every bone that has filter bit `0x4000` to `fDesiredVel` along it. If the normals cancel out, the direction is straight up. Setting the velocity outright, not adding to it, also removes gravity for these bones, which have no floor under them while their collision is off. The stock impulse on the crossing bone is left in place and simply overwritten.
+- **End it after the detection window.** A detour on the detection call (`0x00CA175E`; `EBX` is the util, `+0x20` window start, `+0x28` window length) reports "clear" once the window has passed. The stock code then clears bit `0x4000` on every bone. At 1.5 m/s for 5 s a ragdoll can travel 7.5 m at most.
+- **The lift is removed (version 112).** Section 13's lift existed because, with the recovery switched off, nothing got a buried bone out. With the recovery repaired that is its job: a ragdoll with bones on both sides of the terrain has a bone line crossing it, the detection flags those bones, and they are carried up until nothing crosses. Keeping the lift as well would hide whether the recovery works, since the lift acts first. If a corpse is still buried when the window ends, nothing moves it any more.
+
+### Risks
+
+- The carried bones pass through everything along the chosen direction. The direction comes from the ray cast in `0x00CA1C50`, which takes the first hit in collector order, not the nearest. A wrong normal sends the ragdoll the wrong way for up to 5 s.
+- Only other actors are carried. The player's ragdoll goes through `0x0093F8C2` and keeps the stock push, now with the time limit.
+- The recovery only starts inside the detection window, which opens when the ragdoll is set up or loaded. A corpse that becomes buried later is not helped.
+
+### How to check it
+
+First repeat the `killall` test on slopes: corpses must not sink, stretch or twitch. Then kill something so that it falls against or into a rock, wall or large object, and watch for 5 s. Expected: the part that is inside slides out and the corpse settles. Wrong: the corpse slides away through geometry, hovers, or ends up inside the object. If it is wrong, go back to version 110 (branch `tilt-sample-span`), where the recovery is switched off.
