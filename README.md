@@ -6,15 +6,17 @@ NVSE plugin for Fallout: New Vegas 1.4.0.525. It fixes stale support-height data
 
 At `0x0092FBCD`, the plugin wraps the existing `bhkCharacterController_InitFrontBack` call. For probe controllers it resets the four cached support heights to `FLT_MIN`, forcing `CalculatePitchAndRoll` to sample the current terrain, then calls the preserved target.
 
+It also corrects the tilt angle itself. `CalculatePitchAndRoll` (`0x00C70060`) computes `atan(height difference / length)`, but `InitFrontBack` places the ground samples only `length - 2 * radius` apart. The two divisions at `0x00C70159` (pitch) and `0x00C702CB` (roll) are replaced with a call that divides by the real distance between the samples. This applies at every distance, not only far from the player.
+
 RTM’s `HookUtils::CallDetour` preserves the existing target so another detour installed earlier can run afterward. A plugin installed later must likewise preserve the current target; compatibility cannot be guaranteed with a later plugin that blindly overwrites the call.
 
 The plugin does not change actor-fade behavior or character-proxy positioning. Those extra operations were removed after a crash report. Non-probe controllers retain the stock update.
 
-The plugin validates that the site still contains a call instruction before patching and has no C++ runtime dependency. It imports `KERNEL32`, `USER32` (an error message box if the hook site does not match) and the C runtime: `msvcrt.dll` in the CI-built release, `api-ms-win-crt-*` (UCRT) in a build with a UCRT MinGW toolchain.
+The plugin validates all three sites before patching any of them and has no C++ runtime dependency. It imports `KERNEL32`, `USER32` (an error message box if the hook site does not match) and the C runtime: `msvcrt.dll` in the CI-built release, `api-ms-win-crt-*` (UCRT) in a build with a UCRT MinGW toolchain.
 
 ## Repository contents
 
-- `main.cpp`: NVSE entry points and support-height hook.
+- `main.cpp`: NVSE entry points, support-height hook and tilt-angle correction.
 - `shared/SafeWrite/`: RTM’s `CallDetour` and memory-patching support, vendored under GPL-3.0.
 - `nvse/PluginAPI.h`: NVSE ABI declarations used by the plugin.
 - `build.sh`: standalone Clang/MinGW build.

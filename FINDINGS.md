@@ -339,3 +339,25 @@ Verified during development:
 - No `libstdc++` dependency exists.
 
 Full behavior across all controller types, mods, near/far transitions, and fade configurations has not been validated.
+
+## 11. Under-tilt from the wrong divisor (version 110)
+
+Found later with a runtime log, while investigating corpses that sank into the ground and twitched.
+
+A logger recorded, for living actors, the controller's pitch and roll and the slope of the land under the actor. With v106 installed:
+
+- The far-away flag (`0x40000`, section 4) was set in under 5% of samples. The fade gate was not the cause of what follows.
+- Tilt was consistently about 0.55 to 0.7 of the ground slope, at every distance, including next to the player.
+
+The cause is in the angle calculation:
+
+- `InitFrontBack` (`0x00C6E820`) places the four ground samples at `+-(length / 2 - radius)` (`+0x5F0` radius, `+0x5F4` length). Opposite samples are `length - 2 * radius` apart.
+- `CalculatePitchAndRoll` computes `atan(heightDifference / length)` for both pitch and roll.
+
+The angle is therefore too small by `(length - 2 * radius) / length`. For the small radscorpion controller (radius 3.02, length 10.72) that factor is 0.44. The body stays flatter than the ground and the uphill legs go under the surface.
+
+Fix: the two `fdiv dword ptr [esi+0x5F4]` instructions at `0x00C70159` and `0x00C702CB` are replaced with a call that divides by `length - 2 * radius`. If that is not above 10% of the length, the stock divisor is kept.
+
+Measured after the fix, same save and actors, on slopes steeper than 0.08 rad: tilt divided by slope averaged 1.00 over 750 samples for the small radscorpion controller (individuals 0.9 to 1.35). The user confirmed in game that scorpions sit flush on slopes.
+
+Not checked: the larger controllers (lengths 21.43 and 35.72) were almost always on near-flat ground in that run, so their result is not established.
