@@ -5,19 +5,20 @@
 #include "nvse/PluginAPI.h"
 #include "shared/SafeWrite/SafeWrite.hpp"
 
+#include <cstdarg>
 #include <cstdint>
 #include <cstring>
 
 namespace {
 
 constexpr char kPluginName[] = "Creature Terrain Tilt Fix";
-constexpr uint32_t kPluginVersion = 200;
+constexpr uint32_t kPluginVersion = 210; // major * 100 + minor * 10
 
 // MobileObject::Move, distant controller update (Fallout NV 1.4.0.525).
 constexpr uintptr_t kInitFrontBackCall = 0x0092FBCD; // call 0x00C6E820
 HookUtils::CallDetour gInitFrontBackDetour;
 
-// ECX is the character controller. EBP is MobileObject::Move's frame.
+// ECX is the character controller.
 // Only horizontal/probe controllers (flag 0x414 bit 0) use the four cached
 // support heights. Other controllers retain the stock update.
 __declspec(naked) void InitFrontBackFresh() {
@@ -25,7 +26,6 @@ __declspec(naked) void InitFrontBackFresh() {
         pushad
         pushfd
 
-        mov ecx, dword ptr [ebp-0x20]
         test dword ptr [ecx+0x414], 1
         jz call_original
 
@@ -36,7 +36,6 @@ __declspec(naked) void InitFrontBackFresh() {
         mov dword ptr [ecx+0x46C], 0x00800000
 
     call_original:
-        mov ecx, dword ptr [ebp-0x20]
         mov eax, dword ptr [gInitFrontBackDetour]
         call eax
 
@@ -119,41 +118,37 @@ void __cdecl MarkWholeRagdoll(const uint8_t* controller) {
             states[i] = 2;
 }
 
-// thiscall detectPenetration(hkBool* result, pose, contacts). EBX is the util.
-// After the window it reports "clear"; the stock code then restores collision.
-__declspec(naked) void DetectWithinWindow() {
-    __asm {
-        push ecx
-        push ebx
-        call RecoveryWindowExpired
-        add esp, 4
-        pop ecx
-        test al, al
-        jnz expired
+// hkaDetectRagdollPenetration::detectPenetration, thiscall (result, pose, contacts);
+// as __fastcall the unused EDX slot sits between `this` and the stack arguments.
+// The util built the detector with itself as the raycast interface (detector +0x0C,
+// 0x00CA307B), so it comes from `this` and no register the caller may have changed.
+// The detection always runs, so a hook installed before ours still sees every call;
+// after the window its result is overridden with "clear", and the stock code then
+// restores collision. A detector not owned by a util is left as the detection found it.
+constexpr uintptr_t kUtilVtable = 0x010C7324; // bhkRagdollPenetrationUtil::`vftable'
+constexpr uintptr_t kPlayerSingleton = 0x011DEA3C; // PlayerCharacter*
 
-        push ecx // controller, for MarkWholeRagdoll
-        push dword ptr [esp+0x10] // contacts
-        push dword ptr [esp+0x10] // pose
-        push dword ptr [esp+0x10] // result
-        call dword ptr [gDetectDetour] // returns the result pointer in EAX
-        pop ecx
-        cmp byte ptr [eax], 0
-        je done
-        push eax
-        push ecx
-        call MarkWholeRagdoll
-        add esp, 4
-        pop eax
-    done:
-        ret 0xC
+// An actor's util is at actor +0xB0 (0x0093F8BC, 0x009782D4).
+// The player's ragdoll is not carried (only 0x009782DA is hooked). Marking all of it
+// would take collision off bones that nothing then holds up, so it keeps the stock marking.
+bool IsPlayerUtil(const uint8_t* util) {
+    const uint8_t* player = *reinterpret_cast<const uint8_t* const*>(kPlayerSingleton);
+    return player && *reinterpret_cast<const uint8_t* const*>(player + 0xB0) == util;
+}
+using DetectFn = uint8_t*(__fastcall*)(uint8_t* detector, void*, uint8_t* result, void* pose, uint8_t* contacts);
 
-    expired:
-        mov eax, dword ptr [esp+0xC]
-        mov dword ptr [eax+4], 0 // contacts.size = 0
-        mov eax, dword ptr [esp+4]
-        mov byte ptr [eax], 0 // *result = false
-        ret 0xC
+uint8_t* __fastcall DetectWithinWindow(uint8_t* detector, void*, uint8_t* result, void* pose, uint8_t* contacts) {
+    uint8_t* const found = reinterpret_cast<DetectFn>(gDetectDetour.GetOverwrittenAddr())(detector, nullptr, result, pose, contacts);
+    const uint8_t* util = *reinterpret_cast<const uint8_t* const*>(detector + 0x0C);
+    if (!util || *reinterpret_cast<const uintptr_t*>(util) != kUtilVtable)
+        return found;
+    if (RecoveryWindowExpired(util)) {
+        *reinterpret_cast<int*>(contacts + 4) = 0; // contacts.size
+        *found = 0;
+    } else if (*found && !IsPlayerUtil(util)) {
+        MarkWholeRagdoll(detector);
     }
+    return found;
 }
 
 // Runs after the stock update. For each ragdoll still in recovery, every bone that
@@ -227,15 +222,58 @@ bool IsCall(uintptr_t address) {
     return *reinterpret_cast<const uint8_t*>(address) == 0xE8;
 }
 
-bool InstallHooks() {
+// wvsprintfA, not fprintf: MinGW's printf family needs CRT start-up this DLL does not have.
+void Log(FILE* log, const char* format, ...) {
+    if (!log)
+        return;
+    char line[1024]; // the wvsprintfA maximum
+    va_list args;
+    va_start(args, format);
+    wvsprintfA(line, format, args);
+    va_end(args);
+    fputs(line, log);
+}
+
+struct Site {
+    const char* name;
+    uintptr_t address;
+    bool stock;
+};
+
+bool InstallHooks(uint32_t runtimeVersion) {
     static bool installed = false;
     if (installed)
         return true;
 
+    // Opened here, not by a global constructor: the DLL has no CRT start-up to run one.
+    CreateDirectoryA("logs", nullptr);
+    FILE* log = fopen("logs\\CreatureTerrainTiltFix.log", "w");
+    Log(log, "%s %u.%u, runtime 0x%08X\n", kPluginName, kPluginVersion / 100, kPluginVersion / 10 % 10, runtimeVersion);
+
     // Check every site before changing any of them.
-    if (!IsCall(kInitFrontBackCall) || !IsStockDivide(kPitchDivide) || !IsStockDivide(kRollDivide) ||
-        !IsCall(kDetectCall) || !IsCall(kActorUpdateCall))
-        return false; // Other executable or another patch; leave everything untouched.
+    const Site sites[] = {
+        {"InitFrontBack call", kInitFrontBackCall, IsCall(kInitFrontBackCall)},
+        {"pitch divide", kPitchDivide, IsStockDivide(kPitchDivide)},
+        {"roll divide", kRollDivide, IsStockDivide(kRollDivide)},
+        {"detectPenetration call", kDetectCall, IsCall(kDetectCall)},
+        {"ragdoll Update call", kActorUpdateCall, IsCall(kActorUpdateCall)},
+    };
+    bool allStock = true;
+    for (const Site& site : sites) {
+        if (site.stock)
+            continue;
+        allStock = false;
+        const uint8_t* code = reinterpret_cast<const uint8_t*>(site.address);
+        Log(log, "Unexpected code at 0x%08X (%s): %02X %02X %02X %02X %02X %02X\n", site.address, site.name,
+            code[0], code[1], code[2], code[3], code[4], code[5]);
+    }
+    if (!allStock) {
+        // Other executable or another patch; leave everything untouched.
+        Log(log, "No fix installed: another plugin or a different executable changed the code above.\n");
+        if (log)
+            fclose(log);
+        return false;
+    }
 
     gInitFrontBackDetour.WriteRelCall(kInitFrontBackCall, InitFrontBackFresh);
     HookUtils::ReplaceVirtualCall(kPitchDivide, DivideBySampleSpan, sizeof(kStockDivide));
@@ -243,6 +281,9 @@ bool InstallHooks() {
     gDetectDetour.WriteRelCall(kDetectCall, DetectWithinWindow);
     gRagdollUpdateDetour.WriteRelCall(kActorUpdateCall, RagdollUpdateHook);
     installed = true;
+    Log(log, "All fixes installed.\n");
+    if (log)
+        fclose(log);
     return true;
 }
 
@@ -255,8 +296,8 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* i
     return !nvse->isEditor;
 }
 
-EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface*) {
-    return InstallHooks();
+EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
+    return InstallHooks(nvse->runtimeVersion);
 }
 
 BOOL WINAPI DllMain(HANDLE, DWORD, LPVOID) {

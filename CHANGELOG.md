@@ -2,6 +2,12 @@
 
 Each release needs a `## <version>` section here matching `VERSION`. The release workflow publishes that section as the GitHub release notes and fails if it is missing.
 
+## 2.1
+
+- Fixed: the player's own ragdoll could lose collision and fall through the ground.
+- Better compatibility with other NVSE plugins that change the same parts of the game.
+- New log file `logs\CreatureTerrainTiltFix.log` in the game folder. It says whether the fixes were installed and, if another plugin got in the way, where.
+
 ## 2.0
 
 - Fixed: a corpse lying partly in the ground could lose all collision, fall through the terrain and be dragged back stretched. The engine's ragdoll penetration recovery now moves the whole ragdoll out together, and stops after `fDetectionUpdateTimeSec`.

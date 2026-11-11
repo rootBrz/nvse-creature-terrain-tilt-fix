@@ -19,8 +19,8 @@ A creature that dies with part of its body in the ground used to fall through th
 **Ragdoll penetration recovery is repaired.** `bhkRagdollPenetrationUtil::Update` (`0x00CA1410`) disables collision on a bone that crosses a surface, and on every bone below it in the skeleton, but pushes only the crossing bone. The rest has nothing holding it, so when the crossing bone is the root the whole corpse falls through the terrain. Three changes:
 
 - When a penetration is detected, every bone of that ragdoll is marked, not only the crossing bone and the bones attached below it. Otherwise buried bones nearer the root keep their collision and stay trapped.
-- After the stock update, every bone that has collision disabled is given the same velocity: `fDesiredVel` along the average contact normal. The ragdoll leaves the surface as one piece. This runs for other actors only, from the detour at `0x009782DA`; the player's own ragdoll keeps the stock push.
-- A detour on the detection call at `0x00CA175E` reports "clear" once `fDetectionUpdateTimeSec` (default 5 s) has passed, so the stock code restores collision. Stock keeps going for as long as anything is crossing.
+- After the stock update, every bone that has collision disabled is given the same velocity: `fDesiredVel` along the average contact normal. The ragdoll leaves the surface as one piece. This runs for other actors only, from the detour at `0x009782DA`; the player's own ragdoll keeps the stock marking and push.
+- A detour on the detection call at `0x00CA175E` reports "clear" once `fDetectionUpdateTimeSec` (default 5 s) has passed, so the stock code restores collision. The detection still runs; only its result is overridden. Stock keeps going for as long as anything is crossing.
 
 A ragdoll that starts with bones under the terrain is handled by the same recovery: a bone line crosses the surface, those bones lose collision, and all of them are carried up and out. This was confirmed in game on slopes and against a rock. Walls and other objects were not tried.
 
@@ -28,7 +28,7 @@ RTM’s `HookUtils::CallDetour` preserves the existing target so another detour 
 
 The plugin does not change actor-fade behavior or character-proxy positioning. Those extra operations were removed after a crash report. Non-probe controllers retain the stock update.
 
-The plugin validates all five sites before patching any of them and has no C++ runtime dependency. It imports `KERNEL32`, `USER32` (an error message box if the hook site does not match) and the C runtime: `msvcrt.dll` in the CI-built release, `api-ms-win-crt-*` (UCRT) in a build with a UCRT MinGW toolchain.
+The plugin validates all five sites before patching any of them and has no C++ runtime dependency. It writes `logs\CreatureTerrainTiltFix.log` in the game directory: either `All fixes installed.` or, for each site that did not match, its address and first six bytes, followed by `No fix installed`. It imports `KERNEL32`, `USER32` (`wvsprintfA` for the log, and an error message box if a hook site does not match) and the C runtime: `msvcrt.dll` in the CI-built release, `api-ms-win-crt-*` (UCRT) in a build with a UCRT MinGW toolchain.
 
 ## Repository contents
 
