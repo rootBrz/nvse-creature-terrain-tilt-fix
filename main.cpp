@@ -115,9 +115,10 @@ uint8_t* __fastcall DetectWithinWindow(uint8_t* detector, void*, uint8_t* result
 }
 
 // Runs after the stock update. For each ragdoll still in recovery, every bone that
-// has collision disabled (filter bit 0x4000) is given the same velocity: fDesiredVel
-// along the average of the contact normals the detection reported. Moving them as
-// one keeps the joints unstrained and replaces gravity, which would otherwise pull
+// has collision disabled (filter bit 0x4000) is carried along the average contact
+// normal at fDesiredVel. Only that velocity component is replaced: the existing
+// tangential motion is retained, so killing-blow knockback survives recovery.
+// Replacing the normal component also counters gravity, which would otherwise pull
 // the unsupported bones through the floor.
 void __cdecl CarryRecoveringBones(const uint8_t* util) {
     if (!util)
@@ -159,8 +160,14 @@ void __cdecl CarryRecoveringBones(const uint8_t* util) {
             uint8_t* bone = bones[b];
             if (!bone || !(*reinterpret_cast<const uint32_t*>(bone + 0x2C) & 0x4000))
                 continue;
-            const float velocity[3] = {normal[0] * desired, normal[1] * desired, normal[2] * desired};
-            memcpy(bone + 0x1B0, velocity, sizeof(velocity)); // hkpRigidBody linear velocity
+            float velocity[3];
+            memcpy(velocity, bone + 0x1B0, sizeof(velocity)); // hkpRigidBody linear velocity
+            const float alongNormal = velocity[0] * normal[0] + velocity[1] * normal[1] + velocity[2] * normal[2];
+            const float correction = desired - alongNormal;
+            velocity[0] += normal[0] * correction;
+            velocity[1] += normal[1] * correction;
+            velocity[2] += normal[2] * correction;
+            memcpy(bone + 0x1B0, velocity, sizeof(velocity));
             reinterpret_cast<void(__fastcall*)(uint8_t*)>(kEntityActivate)(bone);
         }
     }

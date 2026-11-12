@@ -5,6 +5,7 @@ Each release needs a `## <version>` section here matching `VERSION`. The release
 ## 2.2
 
 - Reverted the 2.0 tilt-angle change: it could make distant creatures twitch and rotate sharply on rocks, and did not improve their appearance enough to justify these problems.
+- Fixed: creatures could hop instead of being knocked back when killed. Penetration recovery no longer erases the killing blow's knockback.
 
 ## 2.1
 
