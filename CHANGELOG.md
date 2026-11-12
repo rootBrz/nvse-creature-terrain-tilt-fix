@@ -2,6 +2,10 @@
 
 Each release needs a `## <version>` section here matching `VERSION`. The release workflow publishes that section as the GitHub release notes and fails if it is missing.
 
+## 2.2
+
+- Reverted the 2.0 tilt-angle change: it could make distant creatures twitch and rotate sharply on rocks, and did not improve their appearance enough to justify these problems.
+
 ## 2.1
 
 - Fixed: the player's own ragdoll could lose collision and fall through the ground.

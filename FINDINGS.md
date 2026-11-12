@@ -10,7 +10,7 @@ The current plugin, **Creature Terrain Tilt Fix v106**, addresses that specific 
 
 The fix is limited to horizontal/probe controllers (`controller +0x414 & 1`). Other controller types and several related defects remain outside its scope.
 
-Version 2.0 adds two further changes found later with runtime logs: the tilt-angle divisor (section 11) and the repaired ragdoll penetration recovery (section 14, with the investigation behind it in sections 12 and 13). Sections 1 to 10 describe version 106 and are unchanged.
+Version 2.0 added two further changes found later with runtime logs: the tilt-angle divisor (section 11) and the repaired ragdoll penetration recovery (section 14, with the investigation behind it in sections 12 and 13). The divisor change was later reverted because it over-amplified discontinuous rock samples; the ragdoll repair remains. Sections 1 to 10 describe version 106 and are unchanged.
 
 ## 1. Rejected hypothesis: `0x008CD780`
 
@@ -336,7 +336,7 @@ Verified during development:
 
 Full behavior across all controller types, mods, near/far transitions, and fade configurations has not been validated.
 
-## 11. Under-tilt from the wrong divisor (version 2.0)
+## 11. Under-tilt from the wrong divisor (version 2.0, later reverted)
 
 Found later with a runtime log, while investigating corpses that sank into the ground and twitched.
 
@@ -357,6 +357,8 @@ Fix: the two `fdiv dword ptr [esi+0x5F4]` instructions at `0x00C70159` and `0x00
 Measured after the fix, same save and actors, on slopes steeper than 0.08 rad: tilt divided by slope averaged 1.00 over 750 samples for the small radscorpion controller (individuals 0.9 to 1.35). The user confirmed in game that scorpions sit flush on slopes.
 
 Not checked: the larger controllers (lengths 21.43 and 35.72) were almost always on near-flat ground in that run, so their result is not established.
+
+The change was subsequently reverted. On a rock edge, opposite probes can hit the ground and the top of the rock rather than two points on one slope. Dividing that discontinuous height difference by the shorter span amplified the apparent slope and drove pitch and roll toward their 47-degree clamps. Fresh support raycasts in the distant path made the orientation change repeatedly as probes crossed the rock. The divisor correction was valid for the measured planar slopes, but not as an unconditional replacement for arbitrary support geometry. The stock divisions at `0x00C70159` and `0x00C702CB` are retained; the distant support-height refresh is unchanged.
 
 ## 12. Corpses that sink, stretch and twitch: the penetration recovery
 

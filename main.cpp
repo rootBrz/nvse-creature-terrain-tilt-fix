@@ -1,4 +1,4 @@
-// Creature Terrain Tilt Fix - correct creature tilt on slopes and keep corpses out of the ground.
+// Creature Terrain Tilt Fix - refresh distant terrain support data and keep corpses out of the ground.
 // Copyright (C) 2026 Creature Terrain Tilt Fix contributors.
 // SPDX-License-Identifier: LGPL-2.1-only
 
@@ -12,7 +12,7 @@
 namespace {
 
 constexpr char kPluginName[] = "Creature Terrain Tilt Fix";
-constexpr uint32_t kPluginVersion = 210; // major * 100 + minor * 10
+constexpr uint32_t kPluginVersion = 220; // major * 100 + minor * 10
 
 // MobileObject::Move, distant controller update (Fallout NV 1.4.0.525).
 constexpr uintptr_t kInitFrontBackCall = 0x0092FBCD; // call 0x00C6E820
@@ -43,43 +43,6 @@ __declspec(naked) void InitFrontBackFresh() {
         popad
         ret
     }
-}
-
-// bhkCharacterController::CalculatePitchAndRoll (0x00C70060) turns the height
-// difference between two ground samples into an angle: atan(difference / length).
-// InitFrontBack (0x00C6E820) puts the samples at +-(length / 2 - radius), so they
-// are length - 2 * radius apart, not length. Dividing by the full length makes a
-// creature tilt less than the slope it stands on, and its uphill legs go into the
-// ground. Controller +0x5F0 is the radius, +0x5F4 the length; ESI is the controller.
-constexpr uintptr_t kPitchDivide = 0x00C70159;
-constexpr uintptr_t kRollDivide = 0x00C702CB;
-constexpr uint8_t kStockDivide[] = {0xD8, 0xB6, 0xF4, 0x05, 0x00, 0x00}; // fdiv dword ptr [esi+0x5F4]
-float gMinSpanRatio = 0.1f; // below this fraction of the length the shape is degenerate: keep the stock divisor
-
-// Replaces the fdiv: ST0 = height difference on entry, ST0 = difference / span on return.
-// x87 only, so no register the surrounding code may be using is touched.
-__declspec(naked) void DivideBySampleSpan() {
-    __asm {
-        fld dword ptr [esi+0x5F4] // length, difference
-        fld dword ptr [esi+0x5F0] // radius, length, difference
-        fadd st(0), st(0)
-        fsubr st(0), st(1) // span = length - 2 * radius, length, difference
-        fld st(1)
-        fmul dword ptr [gMinSpanRatio] // length * ratio, span, length, difference
-        fcomip st(0), st(1) // carry set when length * ratio < span
-        jb use_span
-        fstp st(0) // length, difference
-        jmp divide
-    use_span:
-        fstp st(1) // span, difference
-    divide:
-        fdivp st(1), st(0)
-        ret
-    }
-}
-
-bool IsStockDivide(uintptr_t address) {
-    return memcmp(reinterpret_cast<const void*>(address), kStockDivide, sizeof(kStockDivide)) == 0;
 }
 
 // --- Corpses: ragdoll penetration recovery repaired ----------------------------
@@ -253,8 +216,6 @@ bool InstallHooks(uint32_t runtimeVersion) {
     // Check every site before changing any of them.
     const Site sites[] = {
         {"InitFrontBack call", kInitFrontBackCall, IsCall(kInitFrontBackCall)},
-        {"pitch divide", kPitchDivide, IsStockDivide(kPitchDivide)},
-        {"roll divide", kRollDivide, IsStockDivide(kRollDivide)},
         {"detectPenetration call", kDetectCall, IsCall(kDetectCall)},
         {"ragdoll Update call", kActorUpdateCall, IsCall(kActorUpdateCall)},
     };
@@ -276,8 +237,6 @@ bool InstallHooks(uint32_t runtimeVersion) {
     }
 
     gInitFrontBackDetour.WriteRelCall(kInitFrontBackCall, InitFrontBackFresh);
-    HookUtils::ReplaceVirtualCall(kPitchDivide, DivideBySampleSpan, sizeof(kStockDivide));
-    HookUtils::ReplaceVirtualCall(kRollDivide, DivideBySampleSpan, sizeof(kStockDivide));
     gDetectDetour.WriteRelCall(kDetectCall, DetectWithinWindow);
     gRagdollUpdateDetour.WriteRelCall(kActorUpdateCall, RagdollUpdateHook);
     installed = true;
