@@ -2,6 +2,10 @@
 
 Each release needs a `## <version>` section here matching `VERSION`. The release workflow publishes that section as the GitHub release notes and fails if it is missing.
 
+## 2.3
+
+- Fixed: corpse penetration recovery stopped after five seconds, so corpses buried later or moved with the grab key could stay buried and twitch. For dying and dead NPCs, detection now stays on for as long as the ragdoll is moving and stops five seconds after it comes to rest. Living actors and the player retain the time limit.
+
 ## 2.2
 
 - Reverted the 2.0 tilt-angle change: it could make distant creatures twitch and rotate sharply on rocks, and did not improve their appearance enough to justify these problems.

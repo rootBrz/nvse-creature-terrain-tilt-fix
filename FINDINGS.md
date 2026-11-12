@@ -26,13 +26,13 @@ The original suspicious function was presented as `MovementController::UpdateAni
 
 The values have projectile-specific meanings:
 
-| Staging expression | Actual meaning |
-|---|---|
-| `state` | Arrow impact record at `ArrowProjectile +0x88` |
-| `state->position` | Collision/contact position |
-| `state->direction` | World-space collision plane normal |
-| `velocity` | Previous arrow displacement, used as a direction |
-| `speed` | Scalar arrow speed |
+| Staging expression | Actual meaning                                   |
+| ------------------ | ------------------------------------------------ |
+| `state`            | Arrow impact record at `ArrowProjectile +0x88`   |
+| `state->position`  | Collision/contact position                       |
+| `state->direction` | World-space collision plane normal               |
+| `velocity`         | Previous arrow displacement, used as a direction |
+| `speed`            | Scalar arrow speed                               |
 
 `ArrowProjectile_Bounce` writes the type-3 state and collision normal at `src/staging/blk_008c0000_o2_od_oy_noo2_variant.cpp:788-821`, `0x008CCCE0`.
 
@@ -115,13 +115,13 @@ This runs after `CalculatePitchAndRoll`, so the distant path does move the proxy
 
 For controllers with `controller +0x414 & 1`, `CalculatePitchAndRoll` uses:
 
-| Offset | Meaning |
-|---|---|
-| `+0x460`, `+0x464` | Front/back support heights |
-| `+0x468`, `+0x46C` | Side support heights |
-| `+0x550` | Pitch, radians |
-| `+0x554` | Roll, radians |
-| `+0x558` | Pitch/roll interpolation factor |
+| Offset             | Meaning                         |
+| ------------------ | ------------------------------- |
+| `+0x460`, `+0x464` | Front/back support heights      |
+| `+0x468`, `+0x46C` | Side support heights            |
+| `+0x550`           | Pitch, radians                  |
+| `+0x554`           | Roll, radians                   |
+| `+0x558`           | Pitch/roll interpolation factor |
 
 It computes an angle from height difference divided by controller length, clamps it, and blends toward it. Fresh support-point raycasts occur only for entries still containing `FLT_MIN`.
 
@@ -193,11 +193,11 @@ Process tiers are selected primarily from cell state, not a direct actor-player 
 
 Observed update thresholds:
 
-| Tier | Condition |
-|---|---|
+| Tier        | Condition                                              |
+| ----------- | ------------------------------------------------------ |
 | Middle-high | `0.15` game hours, rollback, or nonzero supplied delta |
-| Middle-low | `0.30` game hours |
-| Low | `1.0` game hour; also budget-limited |
+| Middle-low  | `0.30` game hours                                      |
+| Low         | `1.0` game hour; also budget-limited                   |
 
 Sources: `src/fallout/ai/processlists.cpp:1219-1242`, `7231-7243`, `7633-7645`.
 
@@ -246,16 +246,16 @@ Later plugins must also preserve the current target. Compatibility cannot be gua
 
 ## 7. Crash history and version changes
 
-| Version | Relevant change |
-|---|---|
-| Initial implementation | Added proxy-position synchronization, support-height reset, and fade-gate override |
-| Crash report | Crash occurred in the new distant-probe path before `CalculatePitchAndRoll`; the added operations were not isolated conclusively |
-| v101 | Removed proxy-position call and fade override; retained only support-height reset |
-| v102 | Added preservation of an existing call target |
-| v103 | Switched to RTM `HookUtils::CallDetour` |
-| v104 | Briefly used an independent detour and LGPL-2.1 packaging |
-| v105 | Renamed project to Distant Terrain Alignment Fix |
-| v106 | Restored RTM detour, vendored SafeWrite, and standardized on GPL-3.0 |
+| Version                | Relevant change                                                                                                                  |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Initial implementation | Added proxy-position synchronization, support-height reset, and fade-gate override                                               |
+| Crash report           | Crash occurred in the new distant-probe path before `CalculatePitchAndRoll`; the added operations were not isolated conclusively |
+| v101                   | Removed proxy-position call and fade override; retained only support-height reset                                                |
+| v102                   | Added preservation of an existing call target                                                                                    |
+| v103                   | Switched to RTM `HookUtils::CallDetour`                                                                                          |
+| v104                   | Briefly used an independent detour and LGPL-2.1 packaging                                                                        |
+| v105                   | Renamed project to Distant Terrain Alignment Fix                                                                                 |
+| v106                   | Restored RTM detour, vendored SafeWrite, and standardized on GPL-3.0                                                             |
 
 The v101 behavior was reported as “seems fixed.” Later versions preserve that core behavior while changing detour compatibility and packaging. They have not received equivalent full in-game validation.
 
@@ -298,16 +298,16 @@ Both defects below are confirmed in the binary but low priority. Neither has bee
 
 Instrument one affected actor while it crosses a slope at different distances.
 
-| Hook | Values |
-|---|---|
-| `0x0092F260` | Actor ID, elapsed time, movement delta, actor position, destination, camera distance squared, process tier, frame number, controller flags |
-| `0x006D9100` | Return value, lookup position, output normal |
-| `0x00C6E820` | Phantom translation/rotation, probe origins, actor/reference position |
-| `0x00C6C720`, `0x00C6C890`, `0x00C711D0` | Support-height writes and contact Z |
-| `0x00C70060` | Cached heights, `FLT_MIN` entries, fresh raycast heights, old/new pitch and roll |
-| `0x00C6E420` | Phantom translation before/after |
-| `0x00886CB0`, `0x008879D0` | Fade multiplier, `bFar`, controller pointer, `0x40000` state |
-| `0x0088B150` | Actor/node position and visible pitch/roll |
+| Hook                                     | Values                                                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `0x0092F260`                             | Actor ID, elapsed time, movement delta, actor position, destination, camera distance squared, process tier, frame number, controller flags |
+| `0x006D9100`                             | Return value, lookup position, output normal                                                                                               |
+| `0x00C6E820`                             | Phantom translation/rotation, probe origins, actor/reference position                                                                      |
+| `0x00C6C720`, `0x00C6C890`, `0x00C711D0` | Support-height writes and contact Z                                                                                                        |
+| `0x00C70060`                             | Cached heights, `FLT_MIN` entries, fresh raycast heights, old/new pitch and roll                                                           |
+| `0x00C6E420`                             | Phantom translation before/after                                                                                                           |
+| `0x00886CB0`, `0x008879D0`               | Fade multiplier, `bFar`, controller pointer, `0x40000` state                                                                               |
+| `0x0088B150`                             | Actor/node position and visible pitch/roll                                                                                                 |
 
 ### Evidence supporting the stale-height diagnosis
 
@@ -374,13 +374,13 @@ Later reports: limbs stretched, the corpse half buried and twitching, most often
 
 Every actor owns a `bhkRagdollPenetrationUtil` at `Actor +0xB0`, meant to pull a ragdoll out of terrain and objects.
 
-| Address | Role |
-|---|---|
-| `0x00CA2AD0` | `Initialize`: builds the ragdoll entries and starts a detection timer |
-| `0x00CA0CD0` | Marks all entries active and restarts the timer when a saved actor is loaded |
+| Address      | Role                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------ |
+| `0x00CA2AD0` | `Initialize`: builds the ragdoll entries and starts a detection timer                                        |
+| `0x00CA0CD0` | Marks all entries active and restarts the timer when a saved actor is loaded                                 |
 | `0x00CA1410` | `Update`: once per frame, called from the player update (`0x0093F8C2`) and the per-actor loop (`0x009782DA`) |
-| `0x00D1FB00` | `hkaDetectRagdollPenetration::detectPenetration` |
-| `0x00CA1C50` | Ray cast used by the detection |
+| `0x00D1FB00` | `hkaDetectRagdollPenetration::detectPenetration`                                                             |
+| `0x00CA1C50` | Ray cast used by the detection                                                                               |
 
 Detection: for each bone and its parent, a ray is cast between their positions. A hit on anything that is not a ragdoll body (layers 8 and 29) marks the parent "penetrating" and every bone below it "descendant". The ray cast takes the first hit in collector order, not the closest.
 
@@ -395,15 +395,15 @@ There is no time limit while a penetration is still detected.
 
 A logger recorded, per ragdoll, how many bones were under the land surface and how many had collision disabled. One radscorpion corpse (`00164A53`, 37 bones) after a load, heights in game units relative to the land:
 
-| Time | Bones below land | Bone height | Collision disabled | Recovery |
-|---|---|---|---|---|
-| 0.0 s | 10 of 37 | -16 to +47 | 0 | active |
-| 0.6 s | 11 | -16 to +48 | **37 of 37** | active |
-| 1.1 s | 37 | -67 to -9 | 6 | active |
-| 3.2 s | 37 | -1506 to -1422 | 0 | inactive |
-| 3.7 s | 37 | **-1217 to -239** | 0 | inactive |
-| 5.3 s | 36 | **-1698 to +31** | 0 | inactive |
-| 5.8 s onward | 30 | -37 to +29 | 0 | inactive |
+| Time         | Bones below land | Bone height       | Collision disabled | Recovery |
+| ------------ | ---------------- | ----------------- | ------------------ | -------- |
+| 0.0 s        | 10 of 37         | -16 to +47        | 0                  | active   |
+| 0.6 s        | 11               | -16 to +48        | **37 of 37**       | active   |
+| 1.1 s        | 37               | -67 to -9         | 6                  | active   |
+| 3.2 s        | 37               | -1506 to -1422    | 0                  | inactive |
+| 3.7 s        | 37               | **-1217 to -239** | 0                  | inactive |
+| 5.3 s        | 36               | **-1698 to +31**  | 0                  | inactive |
+| 5.8 s onward | 30               | -37 to +29        | 0                  | inactive |
 
 1. The recovery found a crossing at the root bone and disabled collision on all 37 bones.
 2. The corpse fell through the terrain within half a second. The impulse acts on one bone and cannot carry the ragdoll.
@@ -436,13 +436,13 @@ With the penetration recovery off (section 12), corpses no longer fell through t
 
 Three that sank, two that came to rest normally. Heights are bone centres relative to the land surface, in game units:
 
-| Actor | Before ragdoll: lowest bone | Bones below land | At rest: lowest bone | Bone speed at rest |
-|---|---|---|---|---|
-| `00164A53` (sunk) | -16 | 10 of 37 | -22 to -34 | 240 to 960 units/s, never settles |
-| `0016174B` (sunk) | -10 | 5 | -22 | 60 to 490 units/s |
-| `00161749` (sunk) | -17 | 8 | -18 to -20 | 280 to 470 units/s |
-| `00161755` (normal) | +8 | 0 | +7 | 0 |
-| `00164BDC` (normal) | +2 | 0 | +8 | 0 |
+| Actor               | Before ragdoll: lowest bone | Bones below land | At rest: lowest bone | Bone speed at rest                |
+| ------------------- | --------------------------- | ---------------- | -------------------- | --------------------------------- |
+| `00164A53` (sunk)   | -16                         | 10 of 37         | -22 to -34           | 240 to 960 units/s, never settles |
+| `0016174B` (sunk)   | -10                         | 5                | -22                  | 60 to 490 units/s                 |
+| `00161749` (sunk)   | -17                         | 8                | -18 to -20           | 280 to 470 units/s                |
+| `00161755` (normal) | +8                          | 0                | +7                   | 0                                 |
+| `00164BDC` (normal) | +2                          | 0                | +8                   | 0                                 |
 
 - The sunk scorpions already had 5 to 10 bones under the land when they died, although the actor's own position was on the surface. Section 11 explains that pose: the body was tilted less than the slope.
 - The number of bones below the land never changes afterwards. Terrain collision does not push them out. They stay on the lower side, the other bones on the upper side, and the joints pull between them. That is the twitching.
@@ -502,12 +502,27 @@ That is the case where the buried part is the root side. The crossing is between
 
 Now, when the detection reports a penetration, every bone that it left unmarked is marked as "attached" (state 2, at `controller +0x18`, count at `+0x1C`). The stock code then disables collision on the whole ragdoll and the carry step moves all of it as one rigid body until no bone line crosses anything. The user confirmed that the corpse which stayed buried with build 112 was recovered with this change.
 
+### Version 2.3: detection stays on while a corpse is awake
+
+A corpse recovered correctly after a reload, but not necessarily after its initial death. The reload path (`0x00CA0CD0`) explicitly marks every entry active and restarts the detection timer, giving the corpse another five-second attempt. A later report buried a corpse with a console command and then grabbed it with Z: it twitched because the initial recovery window had already expired.
+
+A corpse whose rigid bodies are asleep does not move, so it cannot become buried; anything that moves it wakes it first. The per-actor update hook receives the actor in `EDX` and its util in `ECX`. For life states 1 (dying) and 2 (dead) at `Actor +0x108`, it asks `hkpEntity::isActive` (`0x00C9BFF0`: `entity +0xCC` is the simulation island, bits 2–3 of `island +0x26` are the active flag; no island means inactive) about the first bone of each entry (`entry +0x04` rig, `rig +0x08` bodies). The bones of a ragdoll are joined by constraints and share one island, so one bone answers for all. While the ragdoll is awake the window start (`util +0x20`) is set to the current time before the stock update runs. Living actors retain the five-second limit, and the separate player update is unchanged.
+
+There is no extra state and no polling interval. A grabbed or pushed corpse is checked from the first frame it is awake. The carry step calls `hkpEntity::activate` on every carried bone, so a corpse in recovery stays awake and recovery continues until detection reports clear. Once the corpse falls asleep the window runs out after `fDetectionUpdateTimeSec` and the stock update skips its raycasts.
+
+An earlier draft of 2.3 polled clear corpses every 250 ms and stored the last probe time by rewriting the window start as `now - length`. It needed a pre-update and a post-update step that had to agree on that encoding, cost four probes per second per corpse at rest, and reacted up to 250 ms late.
+
+Limits. Active recovery has no time bound if contacts never clear or a bad normal carries the corpse the wrong way. A corpse that never falls asleep is checked every frame indefinitely. A corpse moved without being woken (possibly a console move) is not checked until something wakes it. Runtime verification needs a corpse buried after death, then grabbed and dragged through terrain after more than five seconds, a check that it settles and falls asleep when released, and a check that a console move alone starts recovery.
+
+The window helper can clobber both fastcall argument registers. The naked update hook therefore saves and restores `EDX` as well as `ECX` before calling the preserved target. Vanilla declares only the util in `ECX`, but a detour installed earlier may use the actor pointer left in `EDX` by the original call site.
+
+This recovery does not separate a corpse from another corpse. The detection raycast excludes ragdoll bodies (layers 8 and 29), so corpse–corpse intersections produce no recovery contact. Ordinary Havok collision still applies while collision is enabled; during terrain/object recovery the carried whole ragdoll can pass through another corpse until detection clears.
+
 ### Risks
 
-- The carried bones pass through everything along the chosen direction. The direction comes from the ray cast in `0x00CA1C50`, which takes the first hit in collector order, not the nearest. A wrong normal sends the ragdoll the wrong way for up to 5 s.
+- The carried bones pass through everything along the chosen direction. The direction comes from the ray cast in `0x00CA1C50`, which takes the first hit in collector order, not the nearest. A wrong normal sends the ragdoll the wrong way for up to 5 s for living actors and the player, or without a time limit for dead NPCs.
 - Only other actors are carried. The player's ragdoll goes through `0x0093F8C2` and keeps the stock marking and push, now with the time limit. Test build 113 marked the player's whole ragdoll too, which took collision off bones that nothing carried; the whole-ragdoll marking is now skipped when the util is the player's (`PlayerCharacter` at `0x011DEA3C`, util at actor `+0xB0`).
-- The recovery only starts inside the detection window, which opens when the ragdoll is set up or loaded. A corpse that becomes buried later is not helped.
 
 ### How to check it
 
-First repeat the `killall` test on slopes: corpses must not sink, stretch or twitch. Then kill something so that it falls against or into a rock, wall or large object, and watch for 5 s. Expected: the part that is inside slides out and the corpse settles. Wrong: the corpse slides away through geometry, hovers, or ends up inside the object. If it is wrong, the remedies in sections 12 and 13 are the fallback.
+First repeat the `killall` test on slopes: corpses must not sink, stretch or twitch. Then kill something so that it falls against or into a rock, wall or large object. Expected: the part that is inside slides out and the corpse settles. Wrong: the corpse keeps sliding through geometry, hovers, or ends up inside the object. Finally, bury a corpse with a command, wait more than 5 s, and drag it with Z: recovery must reactivate, and releasing it must let detection become clear and restore collision. If it is wrong, the remedies in sections 12 and 13 are the fallback.

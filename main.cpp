@@ -12,7 +12,7 @@
 namespace {
 
 constexpr char kPluginName[] = "Creature Terrain Tilt Fix";
-constexpr uint32_t kPluginVersion = 220; // major * 100 + minor * 10
+constexpr uint32_t kPluginVersion = 230; // major * 100 + minor * 10
 
 // MobileObject::Move, distant controller update (Fallout NV 1.4.0.525).
 constexpr uintptr_t kInitFrontBackCall = 0x0092FBCD; // call 0x00C6E820
@@ -48,14 +48,15 @@ __declspec(naked) void InitFrontBackFresh() {
 // --- Corpses: ragdoll penetration recovery repaired ----------------------------
 // bhkRagdollPenetrationUtil::Update (0x00CA1410) disables collision on a bone that
 // crosses a surface and on every bone below it in the skeleton, then pushes only
-// the crossing bone. The other bones have nothing holding them, so when the
-// crossing bone is the root the whole corpse falls through the terrain. Two
-// repairs: every bone with collision disabled is carried out together (see
-// CarryRecoveringBones), and the recovery ends after fDetectionUpdateTimeSec even
-// if something is still crossing, so a corpse cannot drift without collision forever.
+// crossing bone. The other bones have nothing holding them, so when the
+// crossing bone is the root the whole corpse falls through the terrain. Every
+// disabled bone is carried out together (see CarryRecoveringBones). A dead NPC's
+// detection window stays open while its ragdoll is awake (KeepAwakeCorpseDetecting).
+// Other actors stop after fDetectionUpdateTimeSec so they cannot drift forever.
 constexpr uintptr_t kDetectCall = 0x00CA175E;      // call hkaDetectRagdollPenetration::detectPenetration
 constexpr uintptr_t kPrecisionTimer = 0x00AA4D80;  // BSPrecisionTimer::GetTimer
 constexpr uintptr_t kEntityActivate = 0x00C9C1D0;  // hkpEntity::activate
+constexpr uintptr_t kEntityIsActive = 0x00C9BFF0;  // hkpEntity::isActive
 constexpr uintptr_t kDesiredVelocity = 0x0126829C; // fDesiredVel:RagdollAnim, Havok units per second
 HookUtils::CallDetour gDetectDetour;
 
@@ -112,6 +113,13 @@ uint8_t* __fastcall DetectWithinWindow(uint8_t* detector, void*, uint8_t* result
         MarkWholeRagdoll(detector);
     }
     return found;
+}
+
+bool IsDeadActor(const uint8_t* actor) {
+    if (!actor)
+        return false;
+    const uint32_t lifeState = *reinterpret_cast<const uint32_t*>(actor + 0x108);
+    return lifeState == 1 || lifeState == 2; // dying, dead
 }
 
 // Runs after the stock update. For each ragdoll still in recovery, every bone that
@@ -173,14 +181,58 @@ void __cdecl CarryRecoveringBones(const uint8_t* util) {
     }
 }
 
-// The per-actor call to bhkRagdollPenetrationUtil::Update. ECX = the actor's util.
+// True while Havok is simulating the ragdoll. The bones of one ragdoll are joined
+// by constraints and so share a simulation island; the first bone answers for all.
+bool IsRagdollAwake(const uint8_t* util) {
+    uint8_t* const* entries;
+    uint32_t entryCount;
+    memcpy(&entries, util + 0x08, sizeof(entries));
+    memcpy(&entryCount, util + 0x0C, sizeof(entryCount));
+    for (uint32_t i = 0; entries && i < entryCount; ++i) {
+        const uint8_t* rig = entries[i] ? *reinterpret_cast<const uint8_t* const*>(entries[i] + 0x04) : nullptr;
+        if (!rig)
+            continue;
+        uint8_t* const* bones = *reinterpret_cast<uint8_t* const* const*>(rig + 0x08);
+        const int boneCount = *reinterpret_cast<const int*>(rig + 0x0C);
+        for (int b = 0; bones && b < boneCount; ++b) {
+            if (!bones[b])
+                continue;
+            uint8_t active = 0; // thiscall (hkBool* out); as __fastcall EDX is unused
+            reinterpret_cast<uint8_t*(__fastcall*)(uint8_t*, void*, uint8_t*)>(kEntityIsActive)(bones[b], nullptr, &active);
+            if (active)
+                return true;
+            break;
+        }
+    }
+    return false;
+}
+
+// The per-actor call to bhkRagdollPenetrationUtil::Update. ECX = the actor's util,
+// EDX = the actor. A sleeping corpse cannot become buried: whatever moves it (a
+// grab, a blast, recovery itself) wakes its bodies first. So the detection window
+// of a dying or dead NPC is restarted on every update while its ragdoll is awake,
+// and runs out fDetectionUpdateTimeSec after it falls asleep. Living actors and
+// the player keep the stock window.
 constexpr uintptr_t kActorUpdateCall = 0x009782DA;
 HookUtils::CallDetour gRagdollUpdateDetour;
 
-// The stock update, then carry whatever it put into recovery.
+void __fastcall KeepAwakeCorpseDetecting(uint8_t* util, const uint8_t* actor) {
+    if (!util || !IsDeadActor(actor) || !IsRagdollAwake(util))
+        return;
+    const int64_t now = reinterpret_cast<int64_t(__cdecl*)()>(kPrecisionTimer)();
+    memcpy(util + 0x20, &now, sizeof(now)); // window start
+}
+
+// Restart the window if needed, run the stock update, then carry whatever it put
+// into recovery.
 __declspec(naked) void RagdollUpdateHook() {
     __asm {
         push ecx // util, the argument of CarryRecoveringBones
+        push edx // actor, preserved for another detour that expects the call-site register
+        push ecx // preserve ECX across KeepAwakeCorpseDetecting
+        call KeepAwakeCorpseDetecting
+        pop ecx
+        pop edx
         call dword ptr [gRagdollUpdateDetour]
         call CarryRecoveringBones
         add esp, 4
